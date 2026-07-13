@@ -34,30 +34,37 @@ jobs:
         shell: bash
         run: |
           CONFIG_NAME=$(grep -oP '(?<=<string name="config_name">).*(?=</string>)' app/src/main/res/values/config.xml)
+          if [ -z "$CONFIG_NAME" ]; then
+            echo "Failed to find config_name in config.xml"
+            exit 1
+          fi
+
           echo "name=$CONFIG_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Build Release APK
         run: ./gradlew assembleRelease
 
-      - name: Get date
-        id: date
-        run: echo "date=$(date +'%Y-%m-%dT%H-%M-%S')" >> "$GITHUB_OUTPUT"
+      - name: Verify APK exists
+        run: |
+          if [ ! -f "app/build/outputs/apk/release/app-universal-release.apk" ]; then
+            echo "APK not found!"
+            exit 1
+          fi
 
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ steps.config.outputs.name }}-${{ steps.date.outputs.date }}
-          release_name: ${{ steps.config.outputs.name }} ${{ steps.date.outputs.date }}
+      - name: Prepare release information
+        id: release
+        shell: bash
+        run: |
+          TAG_NAME=$(echo "${{ steps.config.outputs.name }}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
+          DATE=$(date +'%Y-%m-%dT%H-%M-%S')
 
-      - name: Upload APK Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          echo "tag=${TAG_NAME}-${DATE}" >> "$GITHUB_OUTPUT"
+          echo "name=${{ steps.config.outputs.name }} ${DATE}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release and Upload APK
+        uses: softprops/action-gh-release@v2
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: app/build/outputs/apk/release/app-universal-release.apk
-          asset_name: ${{ steps.config.outputs.name }}.apk
-          asset_content_type: application/vnd.android.package-archive
+          tag_name: ${{ steps.release.outputs.tag }}
+          name: ${{ steps.release.outputs.name }}
+          files: |
+            app/build/outputs/apk/release/app-universal-release.apk
