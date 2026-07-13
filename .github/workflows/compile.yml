@@ -34,6 +34,7 @@ jobs:
         shell: bash
         run: |
           CONFIG_NAME=$(grep -oP '(?<=<string name="config_name">).*(?=</string>)' app/src/main/res/values/config.xml)
+
           if [ -z "$CONFIG_NAME" ]; then
             echo "Failed to find config_name in config.xml"
             exit 1
@@ -55,11 +56,46 @@ jobs:
         id: release
         shell: bash
         run: |
-          TAG_NAME=$(echo "${{ steps.config.outputs.name }}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
+          ORIGINAL_NAME="${{ steps.config.outputs.name }}"
+
+          # Sanitize for Android/Windows filename compatibility:
+          # - Replace invalid Windows filename characters: < > : " / \ | ? *
+          # - Replace control characters
+          # - Trim trailing periods/spaces
+          # - Replace remaining unsupported characters with -
+          # - Avoid reserved Windows names
+          FILE_NAME=$(echo "$ORIGINAL_NAME" \
+            | sed 's/[<>:"\/\\|?*]/-/g' \
+            | sed 's/[^[:print:]]/-/g' \
+            | sed 's/[[:space:]]\+$//' \
+            | sed 's/\.+$//' \
+            | sed 's/[^A-Za-z0-9._ -]/-/g')
+
+          if [ -z "$FILE_NAME" ]; then
+            FILE_NAME="Ludere"
+          fi
+
+          case "$(echo "$FILE_NAME" | tr '[:lower:]' '[:upper:]')" in
+            CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])
+              FILE_NAME="Ludere-$FILE_NAME"
+              ;;
+          esac
+
+          TAG_NAME=$(echo "$FILE_NAME" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed 's/ /-/g' \
+            | sed 's/[^a-z0-9._-]/-/g')
+
           DATE=$(date +'%Y-%m-%dT%H-%M-%S')
 
+          echo "file_name=$FILE_NAME" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG_NAME}-${DATE}" >> "$GITHUB_OUTPUT"
-          echo "name=${{ steps.config.outputs.name }} ${DATE}" >> "$GITHUB_OUTPUT"
+          echo "name=$ORIGINAL_NAME $DATE" >> "$GITHUB_OUTPUT"
+
+      - name: Rename APK
+        run: |
+          cp "app/build/outputs/apk/release/app-universal-release.apk" \
+             "app/build/outputs/apk/release/${{ steps.release.outputs.file_name }}.apk"
 
       - name: Create GitHub Release and Upload APK
         uses: softprops/action-gh-release@v2
@@ -67,4 +103,4 @@ jobs:
           tag_name: ${{ steps.release.outputs.tag }}
           name: ${{ steps.release.outputs.name }}
           files: |
-            app/build/outputs/apk/release/app-universal-release.apk
+            app/build/outputs/apk/release/${{ steps.release.outputs.file_name }}.apk
