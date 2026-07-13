@@ -33,8 +33,8 @@ jobs:
           CONFIG_NAME=$(grep -oP '(?<=<string name="config_name">).*(?=</string>)' app/src/main/res/values/config.xml)
           echo "name=$CONFIG_NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Build Universal Release APK
-        run: ./gradlew assembleUniversalRelease
+      - name: Build Release APK
+        run: ./gradlew assembleRelease
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
