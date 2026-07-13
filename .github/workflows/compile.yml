@@ -1,0 +1,44 @@
+name: Build Ludere APK
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
+      - name: Read config_name
+        id: config
+        shell: bash
+        run: |
+          CONFIG_NAME=$(grep -oP '(?<=<string name="config_name">).*(?=</string>)' app/src/main/res/values/config.xml)
+          echo "name=$CONFIG_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Build Universal Release APK
+        run: ./gradlew assembleUniversalRelease
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.config.outputs.name }}
+          path: app/build/outputs/apk/release/app-universal-release.apk
+          if-no-files-found: error
