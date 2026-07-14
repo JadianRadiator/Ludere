@@ -43,65 +43,61 @@ jobs:
           echo "name=$CONFIG_NAME" >> "$GITHUB_OUTPUT"
 
       # =========================================================================
-      # AUTOMATED SPARSE SYSTEM SKIN FETCHER AND INJECTOR
+      # AUTOMATED API TARGETED SKIN FETCHER AND INJECTOR
       # =========================================================================
       - name: Fetch and Inject Matching Overlay
         shell: bash
         run: |
-          # 1. Parse the Core out of your custom config.xml beforehand
-          CORE_VAL=$(grep -oP '(?<=<string name="core_url">).*(?=</string>)' app/src/main/res/values/config.xml || echo "")
+          # 1. Fixed core parser to account for loose layout formatting or capitalizations
+          CORE_VAL=$(grep -iP '(?<=name="core_url">).*(?=</string>)' app/src/main/res/values/config.xml | grep -oP '(?<=<string name="core_url">).*(?=</string>)' || echo "")
           if [ -z "$CORE_VAL" ]; then
-            CORE_VAL=$(grep -oP '(?<=<string name="core">).*(?=</string>)' app/src/main/res/values/config.xml || echo "")
+            CORE_VAL=$(grep -iP '(?<=name="core">).*(?=</string>)' app/src/main/res/values/config.xml | grep -oP '(?<=<string name="core">).*(?=</string>)' || echo "")
           fi
           
           CORE_LOWER=$(echo "$CORE_VAL" | tr '[:lower:]' '[:upper:]')
           
-          # Default mapping paths based on common-overlays folder conventions
+          # Map structural properties based on the parsed string
           SKIN_PATH="gamepads/flat/classic_retro.cfg"
-          SPARSE_DIR="gamepads/flat"
+          API_DIR="gamepads/flat"
           
           if [[ "$CORE_LOWER" == *"MGBA"* || "$CORE_LOWER" == *"GBA"* ]]; then
             SKIN_PATH="borders/Nintendo-GameBoyAdvance/GameBoyAdvance-Bezel.cfg"
-            SPARSE_DIR="borders/Nintendo-GameBoyAdvance"
+            API_DIR="borders/Nintendo-GameBoyAdvance"
           elif [[ "$CORE_LOWER" == *"GAMETTE"* || "$CORE_LOWER" == *"GBC"* || "$CORE_LOWER" == *"GEARBOY"* ]]; then
             SKIN_PATH="borders/Nintendo-GameBoyColor/GameBoyColor-Bezel.cfg"
-            SPARSE_DIR="borders/Nintendo-GameBoyColor"
+            API_DIR="borders/Nintendo-GameBoyColor"
           elif [[ "$CORE_LOWER" == *"GEAR"* || "$CORE_LOWER" == *"SMS"* ]]; then
             SKIN_PATH="borders/Sega-GameGear/GameGear-Bezel.cfg"
-            SPARSE_DIR="borders/Sega-GameGear"
+            API_DIR="borders/Sega-GameGear"
           elif [[ "$CORE_LOWER" == *"SNES"* || "$CORE_LOWER" == *"SNES9X"* ]]; then
             SKIN_PATH="borders/Nintendo-SuperNintendo-USA/SuperNintendo-USA-Bezel.cfg"
-            SPARSE_DIR="borders/Nintendo-SuperNintendo-USA"
+            API_DIR="borders/Nintendo-SuperNintendo-USA"
           elif [[ "$CORE_LOWER" == *"NES"* || "$CORE_LOWER" == *"NESTOPIA"* || "$CORE_LOWER" == *"FCEUMM"* ]]; then
             SKIN_PATH="borders/Nintendo-NES-USA/NES-USA-Bezel.cfg"
-            SPARSE_DIR="borders/Nintendo-NES-USA"
+            API_DIR="borders/Nintendo-NES-USA"
           elif [[ "$CORE_LOWER" == *"GENESIS"* || "$CORE_LOWER" == *"MD"* || "$CORE_LOWER" == *"PICODRIVE"* ]]; then
             SKIN_PATH="borders/Sega-MegaDrive-Japan/MegaDrive-Japan-Bezel.cfg"
-            SPARSE_DIR="borders/Sega-MegaDrive-Japan"
+            API_DIR="borders/Sega-MegaDrive-Japan"
           elif [[ "$CORE_LOWER" == *"PCSX"* || "$CORE_LOWER" == *"PSX"* ]]; then
             SKIN_PATH="borders/Sony-PlayStation/PlayStation-Bezel.cfg"
-            SPARSE_DIR="borders/Sony-PlayStation"
+            API_DIR="borders/Sony-PlayStation"
           fi
 
-          echo "Target system detected: $CORE_VAL -> Only fetching files inside: $SPARSE_DIR"
+          echo "Target system evaluated: $CORE_VAL -> API Sync targeting directory: $API_DIR"
 
-          # 2. Build targeted destination layout directory
-          TARGET_DIR="app/src/main/assets/overlays/global_pack"
-          mkdir -p "$TARGET_DIR"
+          # 2. Build local destination folders
+          TARGET_BASE="app/src/main/assets/overlays/global_pack/$API_DIR"
+          mkdir -p "$TARGET_BASE"
 
-          # 3. Perform a targeted single-folder lookup download from common-overlays
-          cd "$TARGET_DIR"
-          git init
-          git remote add origin https://github.com
-          git config core.sparseCheckout true
-          echo "$SPARSE_DIR/*" >> .git/info/sparse-checkout
-          git pull --depth=1 origin master
-          rm -rf .git
-          
-          # Return back to workspace root folder
-          cd -
+          # 3. Pull file list for the single directory using the public GitHub Contents API
+          # Downloads only the configuration files and layout assets required for that exact core
+          curl -s "https://github.com" | \
+          grep -oP '(?<="download_url": ")[^"]*' | while read -r url; do
+            filename=$(basename "$url")
+            curl -sL "$url" -o "$TARGET_BASE/$filename"
+          done
 
-          # 4. Strip final wrapper tag and inject active skin variables into config.xml
+          # 4. Strip closing wrapper block and append skin initialization metrics to config.xml
           sed -i 's|</resources>||g' app/src/main/res/values/config.xml
           
           echo "    <string name=\"input_overlay_enable\">true</string>" >> app/src/main/res/values/config.xml
