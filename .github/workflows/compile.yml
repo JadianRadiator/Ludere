@@ -43,16 +43,12 @@ jobs:
           echo "name=$CONFIG_NAME" >> "$GITHUB_OUTPUT"
 
       # =========================================================================
-      # STREAM ARCHIVE INJECTOR (Fixed URL Direct Mapping Path)
+      # AUTOMATED SPARSE SYSTEM SKIN FETCHER AND INJECTOR
       # =========================================================================
       - name: Fetch and Inject Matching Overlay
         shell: bash
         run: |
-          mkdir -p app/src/main/assets/overlays/global_pack
-          
-          # Downloads and unzips using the strict direct branch archive target path
-          curl -sL "https://github.com" | tar -xzf - -C app/src/main/assets/overlays/global_pack --strip-components=1
-
+          # 1. Parse the Core out of your custom config.xml beforehand
           CORE_VAL=$(grep -oP '(?<=<string name="core_url">).*(?=</string>)' app/src/main/res/values/config.xml || echo "")
           if [ -z "$CORE_VAL" ]; then
             CORE_VAL=$(grep -oP '(?<=<string name="core">).*(?=</string>)' app/src/main/res/values/config.xml || echo "")
@@ -60,26 +56,52 @@ jobs:
           
           CORE_LOWER=$(echo "$CORE_VAL" | tr '[:lower:]' '[:upper:]')
           
+          # Default mapping paths based on common-overlays folder conventions
           SKIN_PATH="gamepads/flat/classic_retro.cfg"
+          SPARSE_DIR="gamepads/flat"
           
           if [[ "$CORE_LOWER" == *"MGBA"* || "$CORE_LOWER" == *"GBA"* ]]; then
             SKIN_PATH="borders/Nintendo-GameBoyAdvance/GameBoyAdvance-Bezel.cfg"
+            SPARSE_DIR="borders/Nintendo-GameBoyAdvance"
           elif [[ "$CORE_LOWER" == *"GAMETTE"* || "$CORE_LOWER" == *"GBC"* || "$CORE_LOWER" == *"GEARBOY"* ]]; then
             SKIN_PATH="borders/Nintendo-GameBoyColor/GameBoyColor-Bezel.cfg"
+            SPARSE_DIR="borders/Nintendo-GameBoyColor"
           elif [[ "$CORE_LOWER" == *"GEAR"* || "$CORE_LOWER" == *"SMS"* ]]; then
             SKIN_PATH="borders/Sega-GameGear/GameGear-Bezel.cfg"
+            SPARSE_DIR="borders/Sega-GameGear"
           elif [[ "$CORE_LOWER" == *"SNES"* || "$CORE_LOWER" == *"SNES9X"* ]]; then
             SKIN_PATH="borders/Nintendo-SuperNintendo-USA/SuperNintendo-USA-Bezel.cfg"
+            SPARSE_DIR="borders/Nintendo-SuperNintendo-USA"
           elif [[ "$CORE_LOWER" == *"NES"* || "$CORE_LOWER" == *"NESTOPIA"* || "$CORE_LOWER" == *"FCEUMM"* ]]; then
             SKIN_PATH="borders/Nintendo-NES-USA/NES-USA-Bezel.cfg"
+            SPARSE_DIR="borders/Nintendo-NES-USA"
           elif [[ "$CORE_LOWER" == *"GENESIS"* || "$CORE_LOWER" == *"MD"* || "$CORE_LOWER" == *"PICODRIVE"* ]]; then
             SKIN_PATH="borders/Sega-MegaDrive-Japan/MegaDrive-Japan-Bezel.cfg"
+            SPARSE_DIR="borders/Sega-MegaDrive-Japan"
           elif [[ "$CORE_LOWER" == *"PCSX"* || "$CORE_LOWER" == *"PSX"* ]]; then
             SKIN_PATH="borders/Sony-PlayStation/PlayStation-Bezel.cfg"
+            SPARSE_DIR="borders/Sony-PlayStation"
           fi
 
-          echo "Target system detected: $CORE_VAL -> Using skin path: $SKIN_PATH"
+          echo "Target system detected: $CORE_VAL -> Only fetching files inside: $SPARSE_DIR"
 
+          # 2. Build targeted destination layout directory
+          TARGET_DIR="app/src/main/assets/overlays/global_pack"
+          mkdir -p "$TARGET_DIR"
+
+          # 3. Perform a targeted single-folder lookup download from common-overlays
+          cd "$TARGET_DIR"
+          git init
+          git remote add origin https://github.com
+          git config core.sparseCheckout true
+          echo "$SPARSE_DIR/*" >> .git/info/sparse-checkout
+          git pull --depth=1 origin master
+          rm -rf .git
+          
+          # Return back to workspace root folder
+          cd -
+
+          # 4. Strip final wrapper tag and inject active skin variables into config.xml
           sed -i 's|</resources>||g' app/src/main/res/values/config.xml
           
           echo "    <string name=\"input_overlay_enable\">true</string>" >> app/src/main/res/values/config.xml
