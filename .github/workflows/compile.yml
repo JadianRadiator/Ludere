@@ -43,15 +43,12 @@ jobs:
           echo "name=$CONFIG_NAME" >> "$GITHUB_OUTPUT"
 
       # =========================================================================
-      # FAIL-SAFE API TARGETED SKIN FETCHER AND INJECTOR
+      # CRASH-PROOF API TARGETED SKIN FETCHER AND INJECTOR
       # =========================================================================
       - name: Fetch and Inject Matching Overlay
         shell: bash
         run: |
-          # Read raw xml safely into a single string variable to avoid grep null crashes
           XML_CONTENT=$(cat app/src/main/res/values/config.xml)
-          
-          # Convert contents to uppercase for reliable matching
           XML_UPPER=$(echo "$XML_CONTENT" | tr '[:lower:]' '[:upper:]')
           
           SKIN_PATH="gamepads/flat/classic_retro.cfg"
@@ -93,18 +90,24 @@ jobs:
           TARGET_BASE="app/src/main/assets/overlays/global_pack/$API_DIR"
           mkdir -p "$TARGET_BASE"
 
-          # Use GitHub Contents API to query files inside the directory
+          # Clean API extractor string handling JSON lists safely via sed
           FILE_LIST=$(curl -s "https://github.com")
           
-          # Force extract download keys natively
-          echo "$FILE_LIST" | grep -oP '(?<="download_url": ")[^"]*' | while read -r url; do
+          echo "$FILE_LIST" | sed 's/"download_url":/\n"download_url":/g' | grep -oP '(?<="download_url": ")[^"]*' | while read -r url; do
             filename=$(basename "$url")
             curl -sL "$url" -o "$TARGET_BASE/$filename"
           done
 
-          # Verify at least one file was dropped before proceeding
-          if [ -z "$(ls -A "$TARGET_BASE")" ]; then
-            echo "API directory pull failed or rate-limited. Pulling fallback controller profile configuration."
+          # Added a fail-safe fallback trace to guarantee an empty folder never kills the compiler environment
+          IS_EMPTY=true
+          if [ -d "$TARGET_BASE" ]; then
+            if [ "$(ls -A "$TARGET_BASE" 2>/dev/null)" ]; then
+              IS_EMPTY=false
+            fi
+          fi
+
+          if [ "$IS_EMPTY" = true ]; then
+            echo "API tracking limit hit or folder missing. Injecting universal standalone panel."
             FALLBACK_BASE="app/src/main/assets/overlays/global_pack/gamepads/flat"
             mkdir -p "$FALLBACK_BASE"
             curl -sL "https://githubusercontent.com" -o "$FALLBACK_BASE/classic_retro.cfg"
@@ -112,7 +115,6 @@ jobs:
             SKIN_PATH="gamepads/flat/classic_retro.cfg"
           fi
 
-          # Strip resources terminator and drop properties array safely into config
           sed -i 's|</resources>||g' app/src/main/res/values/config.xml
           
           echo "    <string name=\"input_overlay_enable\">true</string>" >> app/src/main/res/values/config.xml
