@@ -43,15 +43,15 @@ jobs:
           echo "name=$CONFIG_NAME" >> "$GITHUB_OUTPUT"
 
       # =========================================================================
-      # TARBALL OVERRIDE INJECTOR (Skips the broken git clone auth block)
+      # STREAM ARCHIVE INJECTOR (Fixed URL payload delivery)
       # =========================================================================
       - name: Fetch and Inject Matching Overlay
         shell: bash
         run: |
           mkdir -p app/src/main/assets/overlays/global_pack
           
-          # Downloads and unzips the master database cleanly as a straight data stream
-          curl -sL https://github.com | tar -xzf - -C app/src/main/assets/overlays/global_pack --strip-components=1
+          # Force a clean payload extraction directly by pulling the master archive archive pipeline
+          curl -sL "https://github.com" | tar -xzf - -C app/src/main/assets/overlays/global_pack --strip-components=1
 
           CORE_VAL=$(grep -oP '(?<=<string name="core_url">).*(?=</string>)' app/src/main/res/values/config.xml || echo "")
           if [ -z "$CORE_VAL" ]; then
