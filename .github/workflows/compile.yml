@@ -43,61 +43,76 @@ jobs:
           echo "name=$CONFIG_NAME" >> "$GITHUB_OUTPUT"
 
       # =========================================================================
-      # AUTOMATED API TARGETED SKIN FETCHER AND INJECTOR
+      # FAIL-SAFE API TARGETED SKIN FETCHER AND INJECTOR
       # =========================================================================
       - name: Fetch and Inject Matching Overlay
         shell: bash
         run: |
-          # 1. Fixed core parser to account for loose layout formatting or capitalizations
-          CORE_VAL=$(grep -iP '(?<=name="core_url">).*(?=</string>)' app/src/main/res/values/config.xml | grep -oP '(?<=<string name="core_url">).*(?=</string>)' || echo "")
-          if [ -z "$CORE_VAL" ]; then
-            CORE_VAL=$(grep -iP '(?<=name="core">).*(?=</string>)' app/src/main/res/values/config.xml | grep -oP '(?<=<string name="core">).*(?=</string>)' || echo "")
-          fi
+          # Read raw xml safely into a single string variable to avoid grep null crashes
+          XML_CONTENT=$(cat app/src/main/res/values/config.xml)
           
-          CORE_LOWER=$(echo "$CORE_VAL" | tr '[:lower:]' '[:upper:]')
+          # Convert contents to uppercase for reliable matching
+          XML_UPPER=$(echo "$XML_CONTENT" | tr '[:lower:]' '[:upper:]')
           
-          # Map structural properties based on the parsed string
           SKIN_PATH="gamepads/flat/classic_retro.cfg"
           API_DIR="gamepads/flat"
+          TARGET_SYSTEM="UNKNOWN (Fallback to Flat Gamepad)"
           
-          if [[ "$CORE_LOWER" == *"MGBA"* || "$CORE_LOWER" == *"GBA"* ]]; then
+          if [[ "$XML_UPPER" == *"MGBA"* || "$XML_UPPER" == *"GBA"* ]]; then
+            TARGET_SYSTEM="Game Boy Advance"
             SKIN_PATH="borders/Nintendo-GameBoyAdvance/GameBoyAdvance-Bezel.cfg"
             API_DIR="borders/Nintendo-GameBoyAdvance"
-          elif [[ "$CORE_LOWER" == *"GAMETTE"* || "$CORE_LOWER" == *"GBC"* || "$CORE_LOWER" == *"GEARBOY"* ]]; then
+          elif [[ "$XML_UPPER" == *"GAMETTE"* || "$XML_UPPER" == *"GBC"* || "$XML_UPPER" == *"GEARBOY"* || "$XML_UPPER" == *"SAMEBOY"* ]]; then
+            TARGET_SYSTEM="Game Boy Color"
             SKIN_PATH="borders/Nintendo-GameBoyColor/GameBoyColor-Bezel.cfg"
             API_DIR="borders/Nintendo-GameBoyColor"
-          elif [[ "$CORE_LOWER" == *"GEAR"* || "$CORE_LOWER" == *"SMS"* ]]; then
+          elif [[ "$XML_UPPER" == *"GEAR"* || "$XML_UPPER" == *"SMS"* ]]; then
+            TARGET_SYSTEM="Sega Game Gear"
             SKIN_PATH="borders/Sega-GameGear/GameGear-Bezel.cfg"
             API_DIR="borders/Sega-GameGear"
-          elif [[ "$CORE_LOWER" == *"SNES"* || "$CORE_LOWER" == *"SNES9X"* ]]; then
+          elif [[ "$XML_UPPER" == *"SNES"* || "$XML_UPPER" == *"SNES9X"* || "$XML_UPPER" == *"POCKETNES"* ]]; then
+            TARGET_SYSTEM="Super Nintendo"
             SKIN_PATH="borders/Nintendo-SuperNintendo-USA/SuperNintendo-USA-Bezel.cfg"
             API_DIR="borders/Nintendo-SuperNintendo-USA"
-          elif [[ "$CORE_LOWER" == *"NES"* || "$CORE_LOWER" == *"NESTOPIA"* || "$CORE_LOWER" == *"FCEUMM"* ]]; then
+          elif [[ "$XML_UPPER" == *"NES"* || "$XML_UPPER" == *"NESTOPIA"* || "$XML_UPPER" == *"FCEUMM"* ]]; then
+            TARGET_SYSTEM="NES"
             SKIN_PATH="borders/Nintendo-NES-USA/NES-USA-Bezel.cfg"
             API_DIR="borders/Nintendo-NES-USA"
-          elif [[ "$CORE_LOWER" == *"GENESIS"* || "$CORE_LOWER" == *"MD"* || "$CORE_LOWER" == *"PICODRIVE"* ]]; then
+          elif [[ "$XML_UPPER" == *"GENESIS"* || "$XML_UPPER" == *"MD"* || "$XML_UPPER" == *"PICODRIVE"* || "$XML_UPPER" == *"GENPLUS"* ]]; then
+            TARGET_SYSTEM="Sega Genesis"
             SKIN_PATH="borders/Sega-MegaDrive-Japan/MegaDrive-Japan-Bezel.cfg"
             API_DIR="borders/Sega-MegaDrive-Japan"
-          elif [[ "$CORE_LOWER" == *"PCSX"* || "$CORE_LOWER" == *"PSX"* ]]; then
+          elif [[ "$XML_UPPER" == *"PCSX"* || "$XML_UPPER" == *"PSX"* || "$XML_UPPER" == *"BEETLE"* ]]; then
+            TARGET_SYSTEM="PlayStation"
             SKIN_PATH="borders/Sony-PlayStation/PlayStation-Bezel.cfg"
             API_DIR="borders/Sony-PlayStation"
           fi
 
-          echo "Target system evaluated: $CORE_VAL -> API Sync targeting directory: $API_DIR"
+          echo "Target system evaluated: $TARGET_SYSTEM -> Syncing directory: $API_DIR"
 
-          # 2. Build local destination folders
           TARGET_BASE="app/src/main/assets/overlays/global_pack/$API_DIR"
           mkdir -p "$TARGET_BASE"
 
-          # 3. Pull file list for the single directory using the public GitHub Contents API
-          # Downloads only the configuration files and layout assets required for that exact core
-          curl -s "https://github.com" | \
-          grep -oP '(?<="download_url": ")[^"]*' | while read -r url; do
+          # Use GitHub Contents API to query files inside the directory
+          FILE_LIST=$(curl -s "https://github.com")
+          
+          # Force extract download keys natively
+          echo "$FILE_LIST" | grep -oP '(?<="download_url": ")[^"]*' | while read -r url; do
             filename=$(basename "$url")
             curl -sL "$url" -o "$TARGET_BASE/$filename"
           done
 
-          # 4. Strip closing wrapper block and append skin initialization metrics to config.xml
+          # Verify at least one file was dropped before proceeding
+          if [ -z "$(ls -A "$TARGET_BASE")" ]; then
+            echo "API directory pull failed or rate-limited. Pulling fallback controller profile configuration."
+            FALLBACK_BASE="app/src/main/assets/overlays/global_pack/gamepads/flat"
+            mkdir -p "$FALLBACK_BASE"
+            curl -sL "https://githubusercontent.com" -o "$FALLBACK_BASE/classic_retro.cfg"
+            curl -sL "https://githubusercontent.com" -o "$FALLBACK_BASE/classic_retro.png"
+            SKIN_PATH="gamepads/flat/classic_retro.cfg"
+          fi
+
+          # Strip resources terminator and drop properties array safely into config
           sed -i 's|</resources>||g' app/src/main/res/values/config.xml
           
           echo "    <string name=\"input_overlay_enable\">true</string>" >> app/src/main/res/values/config.xml
