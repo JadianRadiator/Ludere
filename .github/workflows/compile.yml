@@ -45,83 +45,90 @@ jobs:
       # =========================================================================
       # CRASH-PROOF API TARGETED SKIN FETCHER AND INJECTOR
       # =========================================================================
-      - name: Fetch and Inject Matching Overlay
+      # =========================================================================
+      # AUTOMATIC LIBRETRO COMMON-OVERLAYS FETCHER
+      # =========================================================================
+      - name: Fetch Matching Libretro Overlay
         shell: bash
         run: |
-          XML_CONTENT=$(cat app/src/main/res/values/config.xml)
-          XML_UPPER=$(echo "$XML_CONTENT" | tr '[:lower:]' '[:upper:]')
-          
-          SKIN_PATH="gamepads/flat/classic_retro.cfg"
-          API_DIR="gamepads/flat"
-          TARGET_SYSTEM="UNKNOWN (Fallback to Flat Gamepad)"
-          
-          if [[ "$XML_UPPER" == *"MGBA"* || "$XML_UPPER" == *"GBA"* ]]; then
-            TARGET_SYSTEM="Game Boy Advance"
-            SKIN_PATH="borders/Nintendo-GameBoyAdvance/GameBoyAdvance-Bezel.cfg"
-            API_DIR="borders/Nintendo-GameBoyAdvance"
-          elif [[ "$XML_UPPER" == *"GAMETTE"* || "$XML_UPPER" == *"GBC"* || "$XML_UPPER" == *"GEARBOY"* || "$XML_UPPER" == *"SAMEBOY"* ]]; then
-            TARGET_SYSTEM="Game Boy Color"
-            SKIN_PATH="borders/Nintendo-GameBoyColor/GameBoyColor-Bezel.cfg"
-            API_DIR="borders/Nintendo-GameBoyColor"
-          elif [[ "$XML_UPPER" == *"GEAR"* || "$XML_UPPER" == *"SMS"* ]]; then
-            TARGET_SYSTEM="Sega Game Gear"
-            SKIN_PATH="borders/Sega-GameGear/GameGear-Bezel.cfg"
-            API_DIR="borders/Sega-GameGear"
-          elif [[ "$XML_UPPER" == *"SNES"* || "$XML_UPPER" == *"SNES9X"* || "$XML_UPPER" == *"POCKETNES"* ]]; then
-            TARGET_SYSTEM="Super Nintendo"
-            SKIN_PATH="borders/Nintendo-SuperNintendo-USA/SuperNintendo-USA-Bezel.cfg"
-            API_DIR="borders/Nintendo-SuperNintendo-USA"
-          elif [[ "$XML_UPPER" == *"NES"* || "$XML_UPPER" == *"NESTOPIA"* || "$XML_UPPER" == *"FCEUMM"* ]]; then
-            TARGET_SYSTEM="NES"
-            SKIN_PATH="borders/Nintendo-NES-USA/NES-USA-Bezel.cfg"
-            API_DIR="borders/Nintendo-NES-USA"
-          elif [[ "$XML_UPPER" == *"GENESIS"* || "$XML_UPPER" == *"MD"* || "$XML_UPPER" == *"PICODRIVE"* || "$XML_UPPER" == *"GENPLUS"* ]]; then
-            TARGET_SYSTEM="Sega Genesis"
-            SKIN_PATH="borders/Sega-MegaDrive-Japan/MegaDrive-Japan-Bezel.cfg"
-            API_DIR="borders/Sega-MegaDrive-Japan"
-          elif [[ "$XML_UPPER" == *"PCSX"* || "$XML_UPPER" == *"PSX"* || "$XML_UPPER" == *"BEETLE"* ]]; then
-            TARGET_SYSTEM="PlayStation"
-            SKIN_PATH="borders/Sony-PlayStation/PlayStation-Bezel.cfg"
-            API_DIR="borders/Sony-PlayStation"
-          fi
+          set -e
 
-          echo "Target system evaluated: $TARGET_SYSTEM -> Syncing directory: $API_DIR"
+          CONFIG="app/src/main/res/values/config.xml"
 
-          TARGET_BASE="app/src/main/assets/overlays/global_pack/$API_DIR"
-          mkdir -p "$TARGET_BASE"
+          CORE=$(grep -oP '(?<=<string name="config_core">).*(?=</string>)' "$CONFIG" || true)
+          SYSTEM=$(grep -oP '(?<=<string name="config_system">).*(?=</string>)' "$CONFIG" || true)
 
-          # Clean API extractor string handling JSON lists safely via sed
-          FILE_LIST=$(curl -s "https://github.com")
-          
-          echo "$FILE_LIST" | sed 's/"download_url":/\n"download_url":/g' | grep -oP '(?<="download_url": ")[^"]*' | while read -r url; do
-            filename=$(basename "$url")
-            curl -sL "$url" -o "$TARGET_BASE/$filename"
-          done
+          SEARCH="$CORE $SYSTEM"
+          SEARCH_UPPER=$(echo "$SEARCH" | tr '[:lower:]' '[:upper:]')
 
-          # Added a fail-safe fallback trace to guarantee an empty folder never kills the compiler environment
-          IS_EMPTY=true
-          if [ -d "$TARGET_BASE" ]; then
-            if [ "$(ls -A "$TARGET_BASE" 2>/dev/null)" ]; then
-              IS_EMPTY=false
+          echo "Configured core/system: $SEARCH"
+
+          rm -rf common-overlays
+
+          git clone \
+            --depth=1 \
+            https://github.com/libretro/common-overlays.git \
+            common-overlays
+
+          OVERLAY_ROOT="common-overlays/borders"
+
+          MATCH=""
+
+          while IFS= read -r DIR; do
+            NAME=$(basename "$DIR")
+            NAME_UPPER=$(echo "$NAME" | tr '[:lower:]' '[:upper:]')
+
+            if [[ "$SEARCH_UPPER" == *"$NAME_UPPER"* ]]; then
+              MATCH="$DIR"
+              break
             fi
-          fi
 
-          if [ "$IS_EMPTY" = true ]; then
-            echo "API tracking limit hit or folder missing. Injecting universal standalone panel."
-            FALLBACK_BASE="app/src/main/assets/overlays/global_pack/gamepads/flat"
-            mkdir -p "$FALLBACK_BASE"
-            curl -sL "https://githubusercontent.com" -o "$FALLBACK_BASE/classic_retro.cfg"
-            curl -sL "https://githubusercontent.com" -o "$FALLBACK_BASE/classic_retro.png"
+          done < <(find "$OVERLAY_ROOT" -mindepth 1 -maxdepth 1 -type d)
+
+          if [ -z "$MATCH" ]; then
+            echo "No matching system border found."
+
+            MATCH="common-overlays/gamepads/flat"
             SKIN_PATH="gamepads/flat/classic_retro.cfg"
+
+          else
+
+            RELATIVE="${MATCH#common-overlays/}"
+
+            CFG=$(find "$MATCH" -maxdepth 1 -name "*.cfg" | head -n1)
+
+            if [ -z "$CFG" ]; then
+              echo "Matched folder has no cfg."
+              exit 1
+            fi
+
+            SKIN_PATH="$RELATIVE/$(basename "$CFG")"
+
           fi
 
-          sed -i 's|</resources>||g' app/src/main/res/values/config.xml
-          
-          echo "    <string name=\"input_overlay_enable\">true</string>" >> app/src/main/res/values/config.xml
-          echo "    <string name=\"input_overlay_opacity\">1.000000</string>" >> app/src/main/res/values/config.xml
-          echo "    <string name=\"input_overlay\">/assets/overlays/global_pack/$SKIN_PATH</string>" >> app/src/main/res/values/config.xml
-          
-          echo "</resources>" >> app/src/main/res/values/config.xml
+          echo "Using overlay:"
+          echo "$SKIN_PATH"
+
+          TARGET="app/src/main/assets/overlays/global_pack"
+
+          mkdir -p "$TARGET"
+
+          cp -r "$MATCH" "$TARGET/$(dirname "$SKIN_PATH" | sed 's|.*/||')"/ || true
+
+
+          sed -i '/<string name="input_overlay_enable">/d' "$CONFIG"
+          sed -i '/<string name="input_overlay_opacity">/d' "$CONFIG"
+          sed -i '/<string name="input_overlay">/d' "$CONFIG"
+
+          sed -i 's|</resources>||g' "$CONFIG"
+
+          echo '    <string name="input_overlay_enable">true</string>' >> "$CONFIG"
+          echo '    <string name="input_overlay_opacity">1.000000</string>' >> "$CONFIG"
+          echo "    <string name=\"input_overlay\">/assets/overlays/global_pack/$SKIN_PATH</string>" >> "$CONFIG"
+
+          echo "</resources>" >> "$CONFIG"
+
+          rm -rf common-overlays
       # =========================================================================
 
       - name: Build Release APK
