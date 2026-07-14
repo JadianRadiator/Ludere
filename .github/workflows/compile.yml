@@ -43,14 +43,14 @@ jobs:
           echo "name=$CONFIG_NAME" >> "$GITHUB_OUTPUT"
 
       # =========================================================================
-      # AUTOMATED SKIN PARSER AND CONFIG INJECTOR
+      # DYNAMIC SKIN PARSER AND CONFIG INJECTOR
       # =========================================================================
       - name: Fetch and Inject Matching Overlay
         shell: bash
         run: |
           mkdir -p app/src/main/assets/overlays
           
-          git clone --depth 1 https://github.com app/src/main/assets/overlays/global_pack
+          git clone --depth 1 "https://github.com" app/src/main/assets/overlays/global_pack
           rm -rf app/src/main/assets/overlays/global_pack/.git
           rm -f app/src/main/assets/overlays/global_pack/.gitlab-ci.yml
 
@@ -81,6 +81,7 @@ jobs:
 
           echo "Target system detected: $CORE_VAL -> Using skin path: $SKIN_PATH"
 
+          # Use safe alternative delimiter to clean up line stripping errors
           sed -i 's|</resources>||g' app/src/main/res/values/config.xml
           
           echo "    <string name=\"input_overlay_enable\">true</string>" >> app/src/main/res/values/config.xml
