@@ -43,16 +43,15 @@ jobs:
           echo "name=$CONFIG_NAME" >> "$GITHUB_OUTPUT"
 
       # =========================================================================
-      # DYNAMIC SKIN PARSER AND CONFIG INJECTOR
+      # TARBALL OVERRIDE INJECTOR (Skips the broken git clone auth block)
       # =========================================================================
       - name: Fetch and Inject Matching Overlay
         shell: bash
         run: |
-          mkdir -p app/src/main/assets/overlays
+          mkdir -p app/src/main/assets/overlays/global_pack
           
-          git clone --depth 1 "https://github.com" app/src/main/assets/overlays/global_pack
-          rm -rf app/src/main/assets/overlays/global_pack/.git
-          rm -f app/src/main/assets/overlays/global_pack/.gitlab-ci.yml
+          # Downloads and unzips the master database cleanly as a straight data stream
+          curl -sL https://github.com | tar -xzf - -C app/src/main/assets/overlays/global_pack --strip-components=1
 
           CORE_VAL=$(grep -oP '(?<=<string name="core_url">).*(?=</string>)' app/src/main/res/values/config.xml || echo "")
           if [ -z "$CORE_VAL" ]; then
@@ -81,7 +80,6 @@ jobs:
 
           echo "Target system detected: $CORE_VAL -> Using skin path: $SKIN_PATH"
 
-          # Use safe alternative delimiter to clean up line stripping errors
           sed -i 's|</resources>||g' app/src/main/res/values/config.xml
           
           echo "    <string name=\"input_overlay_enable\">true</string>" >> app/src/main/res/values/config.xml
