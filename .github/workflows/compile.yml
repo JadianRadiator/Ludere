@@ -42,6 +42,60 @@ jobs:
 
           echo "name=$CONFIG_NAME" >> "$GITHUB_OUTPUT"
 
+      # =========================================================================
+      # AUTOMATED SKIN PARSER AND CONFIG INJECTOR
+      # =========================================================================
+      - name: Fetch and Inject Matching Overlay
+        shell: bash
+        run: |
+          # 1. Create the compilation asset layout folders
+          mkdir -p app/src/main/assets/overlays
+          
+          # 2. Shallow clone the master common-overlays database directly into the asset tree
+          git clone --depth 1 https://github.com app/src/main/assets/overlays/global_pack
+          rm -rf app/src/main/assets/overlays/global_pack/.git
+          rm -f app/src/main/assets/overlays/global_pack/.gitlab-ci.yml
+
+          # 3. Read the Core URL or name from your config.xml to deduce the console type
+          CORE_VAL=$(grep -oP '(?<=<string name="core_url">).*(?=</string>)' app/src/main/res/values/config.xml || echo "")
+          if [ -z "$CORE_VAL" ]; then
+            CORE_VAL=$(grep -oP '(?<=<string name="core">).*(?=</string>)' app/src/main/res/values/config.xml || echo "")
+          fi
+          
+          # Convert core string to uppercase for flawless pattern matching
+          CORE_LOWER=$(echo "$CORE_VAL" | tr '[:lower:]' '[:upper:]')
+          
+          # 4. Map the exact path structures found in libretro/common-overlays
+          SKIN_PATH="gamepads/flat/classic_retro.cfg" # Absolute fallback skin
+          
+          if [[ "$CORE_LOWER" == *"MGBA"* || "$CORE_LOWER" == *"GBA"* ]]; then
+            SKIN_PATH="borders/Nintendo-GameBoyAdvance/GameBoyAdvance-Bezel.cfg"
+          elif [[ "$CORE_LOWER" == *"GAMETTE"* || "$CORE_LOWER" == *"GBC"* || "$CORE_LOWER" == *"GEARBOY"* ]]; then
+            SKIN_PATH="borders/Nintendo-GameBoyColor/GameBoyColor-Bezel.cfg"
+          elif [[ "$CORE_LOWER" == *"GEAR"* || "$CORE_LOWER" == *"SMS"* ]]; then
+            SKIN_PATH="borders/Sega-GameGear/GameGear-Bezel.cfg"
+          elif [[ "$CORE_LOWER" == *"SNES"* || "$CORE_LOWER" == *"SNES9X"* ]]; then
+            SKIN_PATH="borders/Nintendo-SuperNintendo-USA/SuperNintendo-USA-Bezel.cfg"
+          elif [[ "$CORE_LOWER" == *"NES"* || "$CORE_LOWER" == *"NESTOPIA"* || "$CORE_LOWER" == *"FCEUMM"* ]]; then
+            SKIN_PATH="borders/Nintendo-NES-USA/NES-USA-Bezel.cfg"
+          elif [[ "$CORE_LOWER" == *"GENESIS"* || "$CORE_LOWER" == *"MD"* || "$CORE_LOWER" == *"PICODRIVE"* ]]; then
+            SKIN_PATH="borders/Sega-MegaDrive-Japan/MegaDrive-Japan-Bezel.cfg"
+          elif [[ "$CORE_LOWER" == *"PCSX"* || "$CORE_LOWER" == *"PSX"* ]]; then
+            SKIN_PATH="borders/Sony-PlayStation/PlayStation-Bezel.cfg"
+          fi
+
+          echo "Target system detected from your config.xml: $CORE_VAL -> Using skin path: $SKIN_PATH"
+
+          # 5. Inject the properties straight into the config.xml right before compiling
+          sed -i 's|</resources>||g' app/src/main/res/values/config.xml
+          
+          echo "    <string name=\"input_overlay_enable\">true</string>" >> app/src/main/res/values/config.xml
+          echo "    <string name=\"input_overlay_opacity\">1.000000</string>" >> app/src/main/res/values/config.xml
+          echo "    <string name=\"input_overlay\">/assets/overlays/global_pack/$SKIN_PATH</string>" >> app/src/main/res/values/config.xml
+          
+          echo "</resources>" >> app/src/main/res/values/config.xml
+      # =========================================================================
+
       - name: Build Release APK
         run: ./gradlew assembleRelease
 
@@ -65,6 +119,7 @@ jobs:
           # - Replace remaining unsupported characters with -
           # - Avoid reserved Windows names
           FILE_NAME=$(echo "$ORIGINAL_NAME" \
+
             | sed 's/[<>:"\/\\|?*]/-/g' \
             | sed 's/[^[:print:]]/-/g' \
             | sed 's/[[:space:]]\+$//' \
