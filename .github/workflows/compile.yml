@@ -3,11 +3,6 @@ name: Build Ludere APK
 on:
   workflow_dispatch:
 
-  push:
-    branches:
-      - main
-      - master
-
 permissions:
   contents: write
 
@@ -42,95 +37,6 @@ jobs:
 
           echo "name=$CONFIG_NAME" >> "$GITHUB_OUTPUT"
 
-      # =========================================================================
-      # CRASH-PROOF API TARGETED SKIN FETCHER AND INJECTOR
-      # =========================================================================
-      # =========================================================================
-      # AUTOMATIC LIBRETRO COMMON-OVERLAYS FETCHER
-      # =========================================================================
-      - name: Fetch Matching Libretro Overlay
-        shell: bash
-        run: |
-          set -e
-
-          CONFIG="app/src/main/res/values/config.xml"
-
-          CORE=$(grep -oP '(?<=<string name="config_core">).*(?=</string>)' "$CONFIG" || true)
-          SYSTEM=$(grep -oP '(?<=<string name="config_system">).*(?=</string>)' "$CONFIG" || true)
-
-          SEARCH="$CORE $SYSTEM"
-          SEARCH_UPPER=$(echo "$SEARCH" | tr '[:lower:]' '[:upper:]')
-
-          echo "Configured core/system: $SEARCH"
-
-          rm -rf common-overlays
-
-          git clone \
-            --depth=1 \
-            https://github.com/libretro/common-overlays.git \
-            common-overlays
-
-          OVERLAY_ROOT="common-overlays/borders"
-
-          MATCH=""
-
-          while IFS= read -r DIR; do
-            NAME=$(basename "$DIR")
-            NAME_UPPER=$(echo "$NAME" | tr '[:lower:]' '[:upper:]')
-
-            if [[ "$SEARCH_UPPER" == *"$NAME_UPPER"* ]]; then
-              MATCH="$DIR"
-              break
-            fi
-
-          done < <(find "$OVERLAY_ROOT" -mindepth 1 -maxdepth 1 -type d)
-
-          if [ -z "$MATCH" ]; then
-            echo "No matching system border found."
-
-            MATCH="common-overlays/gamepads/flat"
-            SKIN_PATH="gamepads/flat/classic_retro.cfg"
-
-          else
-
-            RELATIVE="${MATCH#common-overlays/}"
-
-            CFG=$(find "$MATCH" -maxdepth 1 -name "*.cfg" | head -n1)
-
-            if [ -z "$CFG" ]; then
-              echo "Matched folder has no cfg."
-              exit 1
-            fi
-
-            SKIN_PATH="$RELATIVE/$(basename "$CFG")"
-
-          fi
-
-          echo "Using overlay:"
-          echo "$SKIN_PATH"
-
-          TARGET="app/src/main/assets/overlays/global_pack"
-
-          mkdir -p "$TARGET"
-
-          cp -r "$MATCH" "$TARGET/$(dirname "$SKIN_PATH" | sed 's|.*/||')"/ || true
-
-
-          sed -i '/<string name="input_overlay_enable">/d' "$CONFIG"
-          sed -i '/<string name="input_overlay_opacity">/d' "$CONFIG"
-          sed -i '/<string name="input_overlay">/d' "$CONFIG"
-
-          sed -i 's|</resources>||g' "$CONFIG"
-
-          echo '    <string name="input_overlay_enable">true</string>' >> "$CONFIG"
-          echo '    <string name="input_overlay_opacity">1.000000</string>' >> "$CONFIG"
-          echo "    <string name=\"input_overlay\">/assets/overlays/global_pack/$SKIN_PATH</string>" >> "$CONFIG"
-
-          echo "</resources>" >> "$CONFIG"
-
-          rm -rf common-overlays
-      # =========================================================================
-
       - name: Build Release APK
         run: ./gradlew assembleRelease
 
@@ -154,7 +60,6 @@ jobs:
           # - Replace remaining unsupported characters with -
           # - Avoid reserved Windows names
           FILE_NAME=$(echo "$ORIGINAL_NAME" \
-
             | sed 's/[<>:"\/\\|?*]/-/g' \
             | sed 's/[^[:print:]]/-/g' \
             | sed 's/[[:space:]]\+$//' \
